@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import datetime
 import subprocess
-from azurestorageprovider import AzureStorageProvider
+#from azurestorageprovider import AzureStorageProvider
 import shutil
 
 class FoggyCam(object):
@@ -110,7 +110,7 @@ class FoggyCam(object):
             request.add_header('Authorization', 'Basic %s' % self.nest_access_token)
 
             response = self.merlin.open(request)
-            session_data = response.read()
+            session_data = response.read().decode('utf-8')
 
             session_json = json.loads(session_data)
 
@@ -136,7 +136,7 @@ class FoggyCam(object):
 
         try:
             response = self.merlin.open(request)
-            session_data = response.read()
+            session_data = response.read().decode('utf-8')
             session_json = json.loads(session_data)
 
             self.nest_access_token = session_json['access_token']
@@ -177,7 +177,7 @@ class FoggyCam(object):
 
                     try:
                         response = self.merlin.open(request)
-                        pin_attempt = response.read()
+                        pin_attempt = response.read().decode('utf-8')
 
                         parsed_pin_attempt = json.loads(pin_attempt)
                         if parsed_pin_attempt["status"].lower() == "id_match_positive":
@@ -224,7 +224,7 @@ class FoggyCam(object):
         request.add_header('Content-Type', 'application/x-www-form-urlencoded')
 
         response = self.merlin.open(request)
-        session_data = response.read()
+        session_data = response.read().decode('utf-8')
 
         print (session_data)
 
@@ -247,7 +247,7 @@ class FoggyCam(object):
 
         response = self.merlin.open(request)
 
-        response_data = response.read()
+        response_data = response.read().decode('utf-8')
 
         print (response_data)
 
@@ -299,7 +299,7 @@ class FoggyCam(object):
             image_thread.start()
 
         while True:
-            time.sleep(1)
+            time.sleep(0.5)
 
     def perform_capture(self, config=None, camera=None, camera_path='', video_path=''):
         """Captures images and generates the video from them."""
@@ -325,7 +325,7 @@ class FoggyCam(object):
 
             try:
                 response = self.merlin.open(request)
-                time.sleep(5)
+                time.sleep(1.5)
 
                 with open(camera_path + '/' + file_id + '.jpg', 'wb') as image_file:
                     for chunk in response:
@@ -365,19 +365,26 @@ class FoggyCam(object):
                         if use_terminal or (os.path.isfile(ffmpeg_path) and use_terminal is False):
                             print ('INFO: Found ffmpeg. Processing video!')
                             target_video_path = os.path.join(video_path, file_id + '.mp4')
-                            process = Popen([ffmpeg_path, '-r', str(config.frame_rate), '-f', 'concat', '-safe', '0', '-i', concat_file_name, '-vcodec', 'libx264', '-crf', '25', '-pix_fmt', 'yuv420p', target_video_path], stdout=PIPE, stderr=PIPE)
+                            process = subprocess.Popen([ffmpeg_path, '-r', str(config.frame_rate), '-f', 'concat', '-safe', '0', '-i', concat_file_name, target_video_path], close_fds=False, start_new_session=True, stdout=PIPE, stderr=PIPE)
                             process.communicate()
+                            # TODO: make date_time_stamp apply to each frame during concat, instead of static timestamp to the final video
+                            date_time_stamp = 'drawtext=x=10:y=H-th-10:fontfile=DejaVuSans-Bold.ttf:fontsize=36:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2:text=' + datetime.now().strftime("%m-%d-%Y - %H\\\\:%M\\\\:%S")
+                            # TODO: don't call ffmpeg twice then delete initial video - do it all at once. I am not great with ffmpeg yet!
+                            target_video_path_final = os.path.join(video_path, datetime.now().strftime("%Y%m%d-%H%M%S") + '.mp4')
+                            process_overlay = subprocess.Popen([ffmpeg_path, '-i', target_video_path, '-vf', date_time_stamp, '-vcodec', 'libx264', '-crf', '25', '-pix_fmt', 'yuv420p', target_video_path_final], close_fds=False, start_new_session=True, stdout=PIPE, stderr=PIPE)
+                            process_overlay.communicate()
                             os.remove(concat_file_name)
+                            os.remove(target_video_path)
                             print ('INFO: Video processing is complete!')
 
                             # Upload the video
-                            storage_provider = AzureStorageProvider()
+                            #storage_provider = AzureStorageProvider()
 
-                            if bool(config.upload_to_azure):
-                                print ('INFO: Uploading to Azure Storage...')
-                                target_blob = 'foggycam/' + camera + '/' + file_id + '.mp4'
-                                storage_provider.upload_video(account_name=config.az_account_name, sas_token=config.az_sas_token, container='foggycam', blob=target_blob, path=target_video_path)
-                                print ('INFO: Upload complete.')
+                            #if bool(config.upload_to_azure):
+                            #   print ('INFO: Uploading to Azure Storage...')
+                            #   target_blob = 'foggycam/' + camera + '/' + file_id + '.mp4'
+                            #   storage_provider.upload_video(account_name=config.az_account_name, sas_token=config.az_sas_token, container='foggycam', blob=target_blob, path=target_video_path)
+                            #   print ('INFO: Upload complete.')
 
                             # If the user specified the need to remove images post-processing
                             # then clear the image folder from images in the buffer.
